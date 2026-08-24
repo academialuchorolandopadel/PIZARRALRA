@@ -17,6 +17,10 @@
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
 <style>
   :root{
+    /* alto del header y el banco: variables (no fijo) para poder achicarlos en landscape
+       sin tener que redefinir toda la estructura de filas del grid */
+    --topbar-h:60px;
+    --bench-h:64px;
     /* navy anclado en el color exacto muestreado del logo de la Academia LR (#08203e) */
     --navy-bg:#08203e;
     --navy-bg-2:#0a274c;
@@ -63,7 +67,7 @@
     display:grid;
     height:100%; width:100%;
     grid-template-columns:84px 1fr 168px;
-    grid-template-rows:60px 1fr 64px;
+    grid-template-rows:var(--topbar-h) 1fr var(--bench-h);
     grid-template-areas:
       "topbar topbar topbar"
       "tools  court  steps"
@@ -71,9 +75,10 @@
     gap:0;
   }
   @media (max-width:760px){
+    :root{ --topbar-h:56px; --bench-h:58px; }
     #app{
       grid-template-columns:1fr;
-      grid-template-rows:56px 1fr 58px 68px 96px;
+      grid-template-rows:var(--topbar-h) 1fr var(--bench-h) 68px 96px;
       grid-template-areas:
         "topbar"
         "court"
@@ -95,6 +100,28 @@
     #tools{ padding:4px 0; }
     .tool-btn{ width:54px !important; height:54px !important; }
     .tool-btn svg{ width:22px !important; height:22px !important; }
+  }
+
+  /* Celular en horizontal: poca altura disponible, así que achicamos todo el "chrome"
+     fijo (header, banco, herramientas) para dejarle el máximo lugar posible a la cancha. */
+  @media (max-height:500px) and (orientation:landscape){
+    :root{ --topbar-h:44px !important; --bench-h:46px !important; }
+    #topbar{ padding:0 10px !important; }
+    .brand h1{ font-size:15px !important; }
+    .team-pills{ display:none !important; }
+    .icon-btn{ width:30px !important; height:30px !important; }
+    .icon-btn svg{ width:14px !important; height:14px !important; }
+    #bench{ padding:3px 10px !important; justify-content:center !important; gap:6px !important; }
+    .bench-chip{ width:36px !important; height:36px !important; }
+    .bench-chip canvas{ width:36px !important; height:36px !important; }
+    #tools{ padding:4px 0 !important; gap:4px !important; }
+    .tool-btn{ width:42px !important; height:42px !important; border-radius:9px !important; }
+    .tool-btn svg{ width:17px !important; height:17px !important; }
+    .tool-btn span{ font-size:7px !important; }
+    .rail-divider{ margin:2px 0 !important; }
+    .swatch{ width:16px !important; height:16px !important; }
+    #steps .scoreboard{ margin:6px 6px 4px !important; padding:4px 6px !important; }
+    #steps .play-btn{ margin:0 6px 4px !important; padding:6px !important; font-size:12px !important; }
   }
 
   /* ---------- BANCO (piezas sin colocar) ---------- */
@@ -313,6 +340,9 @@
   .lib-item .meta .name{ font-size:13px; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .lib-item .meta .date{ font-size:10px; color:var(--muted-2); font-family:var(--font-mono); }
   .lib-item .del{ color:var(--danger); font-size:16px; padding:4px; flex:none; }
+  .lib-item .share{ color:var(--muted); padding:4px; flex:none; display:flex; align-items:center; }
+  .lib-item .share:hover{ color:var(--gold); }
+  .lib-item .share svg{ width:17px; height:17px; }
   .lib-empty{ color:var(--muted-2); font-size:13px; text-align:center; padding:20px 0; }
 
   /* toast */
@@ -341,6 +371,9 @@
       <div class="team-pill" id="pillB"><span class="dot" style="background:var(--team-b)"></span><span id="pillBName">Equipo B</span></div>
     </div>
     <div class="top-actions">
+      <div class="icon-btn" id="btnNewBoard" title="Nueva pizarra">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M12 8v8M8 12h8"/></svg>
+      </div>
       <div class="icon-btn" id="btnUndo" title="Deshacer">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-1"/></svg>
       </div>
@@ -465,9 +498,11 @@
     <div id="libContent"></div>
     <div class="modal-actions">
       <button class="btn ghost" data-close>Cerrar</button>
+      <button class="btn primary" id="btnImportPlay">Importar archivo</button>
     </div>
   </div>
 </div>
+<input type="file" id="importFileInput" accept="application/json,.json" style="display:none">
 
 <div id="toast"></div>
 
@@ -520,14 +555,21 @@ function toast(msg){
 // Todas arrancan fuera de la cancha (onCourt:false); el entrenador arrastra desde el banco
 // solo lo que necesita usar en cada paso.
 function defaultPieces(){
+  // Los 4 jugadores (silueta) y la pelota arrancan colocados en cancha; las fichas
+  // redondas quedan en el banco por si las querés usar en vez de (o junto a) las siluetas.
+  const startPos={
+    A1p:{x:0.32,y:0.66}, A2p:{x:0.68,y:0.66},
+    B1p:{x:0.32,y:0.34}, B2p:{x:0.68,y:0.34},
+  };
   const pieces=[];
   ['A','B'].forEach(team=>{
     [1,2].forEach(num=>{
-      pieces.push({id:team+num+'f', kind:'ficha',  team, num, onCourt:false, x:0.5, y:0.5});
-      pieces.push({id:team+num+'p', kind:'player', team, num, onCourt:false, x:0.5, y:0.5, rot:0});
+      pieces.push({id:team+num+'f', kind:'ficha', team, num, onCourt:false, x:0.5, y:0.5});
+      const sp=startPos[team+num+'p'];
+      pieces.push({id:team+num+'p', kind:'player', team, num, onCourt:true, x:sp.x, y:sp.y, rot: sp.y>0.5?0:Math.PI});
     });
   });
-  pieces.push({id:'ball', kind:'ball', team:null, num:null, onCourt:false, x:0.5, y:0.5});
+  pieces.push({id:'ball', kind:'ball', team:null, num:null, onCourt:true, x:0.5, y:0.5});
   return pieces;
 }
 function defaultStep(){
@@ -611,7 +653,13 @@ function resizeCanvas(){
   render();
 }
 new ResizeObserver(resizeCanvas).observe(frame);
+// varios respaldos para el mismo evento: distintos celulares/navegadores disparan uno u
+// otro primero (o no disparan alguno) al rotar la pantalla, así que cubrimos todos.
 window.addEventListener('orientationchange', ()=>setTimeout(resizeCanvas,200));
+window.addEventListener('resize', ()=>resizeCanvas());
+if(window.visualViewport){
+  window.visualViewport.addEventListener('resize', ()=>resizeCanvas());
+}
 
 // Todo el diagrama se calcula en metros reales y se convierte a píxeles con UN SOLO factor
 // de escala (k), usado para ambos ejes. Así, un panel de vidrio de 2m mide lo mismo en
@@ -764,6 +812,7 @@ function drawWalls(ir, scale){
    en cada frame de arrastre o de la animación. */
 let staticCourtCache=null, staticCourtKey=null;
 function drawCourt(ir){
+  if(ir.W<=0 || ir.H<=0) return; // tamaño inválido momentáneo (ej. durante un cambio de layout); no hay nada para dibujar todavía
   const key=ir.W+'x'+ir.H;
   if(staticCourtKey!==key){
     const off=document.createElement('canvas');
@@ -923,41 +972,56 @@ function drawFicha(pc, ir, scale){
 function drawPlayerSilhouette(pc, ir, scale){
   const p=toPx(pc.x,pc.y,ir);
   const color=state.team[pc.team].color;
-  const pxPerM=ir.w/10; // 10m = ancho real de la cancha (mismas proporciones exageradas que la ficha, para que se vea bien en pantalla)
+  const pxPerM=ir.w/10; // 10m = ancho real de la cancha (proporciones exageradas ~1.5x para que se vea bien en pantalla)
 
-  // pala real de pádel: ~45cm x 26cm (relación ~1.7:1), escalada igual que el resto del
-  // cuerpo (1.5x) para que se vea bien en pantalla. Antes estaba más angosta y flotando.
-  const shoulderW=0.93*pxPerM, bodyLen=0.60*pxPerM, headR=0.2325*pxPerM;
+  // medidas (en el mismo "metro escalado" que usa el resto de la cancha)
+  const shoulderW=0.93*pxPerM, hipW=0.65*pxPerM, torsoLen=0.72*pxPerM;
+  const headR=0.2325*pxPerM, headGap=0.07*pxPerM;
+  const footR=0.155*pxPerM, footSpread=0.30*pxPerM, footBack=0.16*pxPerM;
   const armLen=0.85*pxPerM, paddleLen=0.675*pxPerM, paddleW=0.39*pxPerM;
 
   const rot = (pc.rot!==undefined) ? pc.rot : (pc.y>0.5 ? 0 : Math.PI);
-  const facing = {x:Math.sin(rot), y:-Math.cos(rot)}; // rot=0 → mirando hacia arriba de la pantalla
-  const rightPerp = {x:-facing.y, y:facing.x}; // lado de la mano derecha del jugador
-  let ax=facing.x*0.55+rightPerp.x, ay=facing.y*0.55+rightPerp.y;
-  const al=Math.hypot(ax,ay)||1; ax/=al; ay/=al;
 
-  // cuerpo (elipse ancha en hombros, orientada perpendicular a hacia dónde mira)
-  const bodyAngle=Math.atan2(rightPerp.y,rightPerp.x);
+  ctx.save();
+  ctx.translate(p.x,p.y);
+  ctx.rotate(rot); // a partir de acá, "arriba" en coordenadas locales = hacia dónde mira el jugador
+
+  const sW=shoulderW/2, hW=hipW/2, hl=torsoLen/2;
+
+  // pies (posición de espera, apenas detrás de la cadera)
+  const footY=hl+footBack;
+  ctx.fillStyle=color; ctx.lineWidth=Math.max(1.2,1.6*scale); ctx.strokeStyle='#f4f7fa';
+  [-1,1].forEach(side=>{
+    ctx.beginPath();
+    ctx.ellipse(side*footSpread, footY, footR*0.62, footR, 0, 0, Math.PI*2);
+    ctx.fill(); ctx.stroke();
+  });
+
+  // torso ahusado: hombros anchos arriba, cadera angosta abajo (con sombra)
   ctx.save();
   ctx.shadowColor='rgba(0,0,0,.5)'; ctx.shadowBlur=7*scale; ctx.shadowOffsetY=3*scale;
-  ctx.beginPath(); ctx.ellipse(p.x,p.y,shoulderW/2,bodyLen/2,bodyAngle,0,Math.PI*2);
+  ctx.beginPath();
+  ctx.moveTo(-hW, hl);
+  ctx.quadraticCurveTo(-sW*1.08, 0, -sW, -hl);
+  ctx.quadraticCurveTo(0, -hl-sW*0.32, sW, -hl);
+  ctx.quadraticCurveTo(sW*1.08, 0, hW, hl);
+  ctx.quadraticCurveTo(0, hl+hW*0.32, -hW, hl);
+  ctx.closePath();
   ctx.fillStyle=color; ctx.fill();
   ctx.restore();
-  ctx.lineWidth=Math.max(2,2.4*scale); ctx.strokeStyle='#f4f7fa';
-  ctx.beginPath(); ctx.ellipse(p.x,p.y,shoulderW/2,bodyLen/2,bodyAngle,0,Math.PI*2); ctx.stroke();
+  ctx.lineWidth=Math.max(2,2.3*scale); ctx.strokeStyle='#f4f7fa'; ctx.stroke();
 
-  // cabeza, claramente separada del cuerpo en la dirección en la que mira
-  const headOffset=bodyLen*0.5+headR*0.75;
-  const hx=p.x+facing.x*headOffset, hy=p.y+facing.y*headOffset;
-  ctx.beginPath(); ctx.arc(hx,hy,headR,0,Math.PI*2);
+  // cabeza, separada por delante de los hombros
+  const headY=-hl-headGap-headR;
+  ctx.beginPath(); ctx.arc(0,headY,headR,0,Math.PI*2);
   ctx.fillStyle=color; ctx.fill();
   ctx.lineWidth=Math.max(1.6,2*scale); ctx.strokeStyle='#f4f7fa'; ctx.stroke();
 
-  // brazo + pala hacia el lado hábil (alcance real)
-  const handX=p.x+ax*armLen, handY=p.y+ay*armLen;
+  // brazo + pala hacia el lado hábil (adelante-derecha): alcance real
+  let ax=1, ay=-0.55; const al=Math.hypot(ax,ay); ax/=al; ay/=al;
+  const handX=ax*armLen, handY=ay*armLen;
   ctx.lineWidth=Math.max(2,2.6*scale); ctx.strokeStyle=color; ctx.lineCap='round';
-  ctx.beginPath(); ctx.moveTo(p.x,p.y); ctx.lineTo(handX,handY); ctx.stroke();
-  // la pala se superpone un poco con la mano (efecto "agarrada", no flotando)
+  ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(handX,handY); ctx.stroke();
   const grip=paddleLen*0.18;
   const midX=handX+ax*(paddleLen/2-grip), midY=handY+ay*(paddleLen/2-grip);
   ctx.save();
@@ -968,11 +1032,13 @@ function drawPlayerSilhouette(pc, ir, scale){
   ctx.lineWidth=Math.max(1,1.3*scale); ctx.strokeStyle='#f4f7fa'; ctx.stroke();
   ctx.restore();
 
-  // número, en el centro del cuerpo
+  // número, en el centro del torso
   ctx.fillStyle = luminance(color) > 0.55 ? '#0a1626' : '#f4f7fa';
   ctx.font=`700 ${Math.max(12,14*scale)}px Inter, sans-serif`;
   ctx.textAlign='center'; ctx.textBaseline='middle';
-  ctx.fillText(pc.num, p.x, p.y+1);
+  ctx.fillText(pc.num, 0, 1);
+
+  ctx.restore();
 }
 
 function drawBallIcon(pc, ir, scale){
@@ -1263,6 +1329,20 @@ document.getElementById('btnClearCourt').addEventListener('click', ()=>{
   toast('Cancha limpia');
 });
 document.getElementById('btnUndo').addEventListener('click', undo);
+document.getElementById('btnNewBoard').addEventListener('click', ()=>{
+  if(!confirm('¿Reiniciar la pizarra? Se pierden los pasos y dibujos actuales (las jugadas ya guardadas en la biblioteca no se tocan, y podés deshacer esto con la flechita).')) return;
+  pushHistory();
+  state.steps=[defaultStep()];
+  state.currentStepIndex=0;
+  state.tool='mover';
+  document.querySelectorAll('.tool-btn[data-tool]').forEach(b=>b.classList.remove('active'));
+  const moverBtn=document.querySelector('.tool-btn[data-tool="mover"]');
+  if(moverBtn) moverBtn.classList.add('active');
+  selectedPieceId=null;
+  renderAll();
+  scheduleAutosave();
+  toast('Pizarra reiniciada');
+});
 
 /* ============ BANCO (piezas sin colocar) ============ */
 const benchEl=document.getElementById('bench');
@@ -1292,26 +1372,48 @@ function renderBenchIcon(cnv, pc){
     bctx.textAlign='center'; bctx.textBaseline='middle';
     bctx.fillText(pc.num, cx, cy+size*0.01);
   } else if(pc.kind==='player'){
-    const shoulderW=size*0.5, bodyLen=size*0.34, headR=size*0.155, armLen=size*0.30;
-    bctx.beginPath(); bctx.ellipse(cx,cy,shoulderW/2,bodyLen/2,0,0,Math.PI*2);
-    bctx.fillStyle=color; bctx.fill();
-    bctx.lineWidth=size*0.035; bctx.strokeStyle='#f4f7fa'; bctx.stroke();
-    const headOffset=bodyLen*0.5+headR*0.75;
-    bctx.beginPath(); bctx.arc(cx,cy-headOffset,headR,0,Math.PI*2);
-    bctx.fillStyle=color; bctx.fill(); bctx.stroke();
-    bctx.lineWidth=size*0.05; bctx.strokeStyle=color; bctx.lineCap='round';
-    bctx.beginPath(); bctx.moveTo(cx,cy); bctx.lineTo(cx+armLen,cy-armLen*0.2); bctx.stroke();
+    const sW=size*0.25, hW=size*0.175, hl=size*0.19;
+    const headR=size*0.125, headGap=size*0.03;
+    const footR=size*0.075, footSpread=size*0.16, footBack=size*0.09;
+    const armLen=size*0.30;
     bctx.save();
-    bctx.translate(cx+armLen+size*0.07, cy-armLen*0.2-size*0.01);
-    bctx.rotate(-0.15);
+    bctx.translate(cx,cy);
+    // pies
+    bctx.fillStyle=color; bctx.lineWidth=size*0.018; bctx.strokeStyle='#f4f7fa';
+    [-1,1].forEach(side=>{
+      bctx.beginPath(); bctx.ellipse(side*footSpread, hl+footBack, footR*0.62, footR, 0, 0, Math.PI*2);
+      bctx.fill(); bctx.stroke();
+    });
+    // torso ahusado
+    bctx.beginPath();
+    bctx.moveTo(-hW, hl);
+    bctx.quadraticCurveTo(-sW*1.08, 0, -sW, -hl);
+    bctx.quadraticCurveTo(0, -hl-sW*0.32, sW, -hl);
+    bctx.quadraticCurveTo(sW*1.08, 0, hW, hl);
+    bctx.quadraticCurveTo(0, hl+hW*0.32, -hW, hl);
+    bctx.closePath();
+    bctx.fillStyle=color; bctx.fill();
+    bctx.lineWidth=size*0.032; bctx.strokeStyle='#f4f7fa'; bctx.stroke();
+    // cabeza
+    const headY=-hl-headGap-headR;
+    bctx.beginPath(); bctx.arc(0,headY,headR,0,Math.PI*2);
+    bctx.fillStyle=color; bctx.fill();
+    bctx.lineWidth=size*0.025; bctx.strokeStyle='#f4f7fa'; bctx.stroke();
+    // brazo + pala
+    bctx.lineWidth=size*0.05; bctx.strokeStyle=color; bctx.lineCap='round';
+    bctx.beginPath(); bctx.moveTo(0,0); bctx.lineTo(armLen,-armLen*0.55); bctx.stroke();
+    bctx.save();
+    bctx.translate(armLen+size*0.065, -armLen*0.55-size*0.01);
+    bctx.rotate(-0.5);
     bctx.beginPath(); bctx.ellipse(0,0,size*0.11,size*0.055,0,0,Math.PI*2);
     bctx.fillStyle=color; bctx.fill();
     bctx.lineWidth=size*0.018; bctx.strokeStyle='#f4f7fa'; bctx.stroke();
     bctx.restore();
     bctx.fillStyle=luminance(color)>0.55?'#0a1626':'#f4f7fa';
-    bctx.font=`700 ${size*0.24}px Inter, sans-serif`;
+    bctx.font=`700 ${size*0.22}px Inter, sans-serif`;
     bctx.textAlign='center'; bctx.textBaseline='middle';
-    bctx.fillText(pc.num, cx, cy+size*0.02);
+    bctx.fillText(pc.num, 0, size*0.02);
+    bctx.restore();
   }
 }
 
@@ -1595,6 +1697,59 @@ document.getElementById('btnSaveConfirm').addEventListener('click', async ()=>{
   }
 });
 
+// Exportar una jugada (todos sus pasos + equipos) como archivo, para compartir por
+// WhatsApp/mail con otro profe o con los alumnos. Como son solo números y texto (nada
+// de imágenes), el archivo pesa unos pocos KB.
+async function exportPlayAsFile(play){
+  const dataStr=JSON.stringify(play, null, 2);
+  const blob=new Blob([dataStr], {type:'application/json'});
+  const safeName=play.name.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'') || 'jugada';
+  const fileName='jugada-'+safeName+'.json';
+  if(navigator.canShare && window.File){
+    try{
+      const file=new File([blob], fileName, {type:'application/json'});
+      if(navigator.canShare({files:[file]})){
+        await navigator.share({files:[file], title:'Jugada: '+play.name});
+        return;
+      }
+    }catch(e){ /* seguimos con descarga */ }
+  }
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url; a.download=fileName; a.click();
+  setTimeout(()=>URL.revokeObjectURL(url), 4000);
+  toast('Archivo exportado');
+}
+
+document.getElementById('btnImportPlay').addEventListener('click', ()=>{
+  document.getElementById('importFileInput').click();
+});
+document.getElementById('importFileInput').addEventListener('change', async (evt)=>{
+  const file=evt.target.files[0];
+  evt.target.value=''; // permite volver a importar el mismo archivo despues si hace falta
+  if(!file) return;
+  try{
+    const text=await file.text();
+    const play=JSON.parse(text);
+    if(!play || !Array.isArray(play.steps) || !play.team){
+      toast('El archivo no tiene el formato esperado');
+      return;
+    }
+    play.id=uid(); // id nuevo, para no pisar ninguna jugada existente
+    play.steps=migrateSteps(play.steps);
+    if(!play.category) play.category=BASE_CATS[0];
+    if(!play.name) play.name='Jugada importada';
+    play.updatedAt=Date.now();
+    const lib=await loadLibrary();
+    lib[play.id]=play;
+    await saveLibrary(lib);
+    toast('Jugada importada: '+play.name);
+    document.getElementById('btnLibrary').click(); // refresca el listado
+  }catch(err){
+    toast('No se pudo leer el archivo');
+  }
+});
+
 document.getElementById('btnLibrary').addEventListener('click', async ()=>{
   const cont=document.getElementById('libContent');
   cont.innerHTML='<div class="lib-empty">Cargando…</div>';
@@ -1616,6 +1771,12 @@ document.getElementById('btnLibrary').addEventListener('click', async ()=>{
       const nm=document.createElement('div'); nm.className='name'; nm.textContent=play.name;
       const dt=document.createElement('div'); dt.className='date'; dt.textContent=new Date(play.updatedAt).toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit',year:'2-digit'});
       meta.appendChild(nm); meta.appendChild(dt);
+      const share=document.createElement('div'); share.className='share'; share.title='Exportar como archivo';
+      share.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3"/><path d="m7 8 5-5 5 5"/><path d="M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/></svg>';
+      share.addEventListener('click', e=>{
+        e.stopPropagation();
+        exportPlayAsFile(play);
+      });
       const del=document.createElement('div'); del.className='del'; del.textContent='🗑';
       del.addEventListener('click', async e=>{
         e.stopPropagation();
@@ -1627,7 +1788,7 @@ document.getElementById('btnLibrary').addEventListener('click', async ()=>{
           document.getElementById('btnLibrary').click();
         }catch(err){ toast('No se pudo eliminar, probá de nuevo'); }
       });
-      item.appendChild(img); item.appendChild(meta); item.appendChild(del);
+      item.appendChild(img); item.appendChild(meta); item.appendChild(share); item.appendChild(del);
       item.addEventListener('click', ()=>{
         pushHistory();
         state.team=deepClone(play.team);
