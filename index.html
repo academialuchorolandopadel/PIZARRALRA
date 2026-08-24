@@ -62,7 +62,7 @@
   #app{
     display:grid;
     height:100%; width:100%;
-    grid-template-columns:76px 1fr 168px;
+    grid-template-columns:84px 1fr 168px;
     grid-template-rows:60px 1fr 64px;
     grid-template-areas:
       "topbar topbar topbar"
@@ -92,6 +92,9 @@
     .top-actions{ gap:4px !important; flex:none; }
     .icon-btn{ width:32px !important; height:32px !important; }
     .icon-btn svg{ width:15px !important; height:15px !important; }
+    #tools{ padding:4px 0; }
+    .tool-btn{ width:54px !important; height:54px !important; }
+    .tool-btn svg{ width:22px !important; height:22px !important; }
   }
 
   /* ---------- BANCO (piezas sin colocar) ---------- */
@@ -168,17 +171,17 @@
   }
   .tool-group{ display:flex; flex-direction:column; gap:6px; }
   .tool-btn{
-    width:52px; height:52px; border-radius:12px;
-    display:flex; align-items:center; justify-content:center; flex-direction:column; gap:2px;
+    width:60px; height:60px; border-radius:13px;
+    display:flex; align-items:center; justify-content:center; flex-direction:column; gap:3px;
     background:transparent; border:1px solid transparent;
     color:var(--muted); cursor:pointer; transition:all .15s ease;
   }
-  .tool-btn svg{ width:20px; height:20px; }
-  .tool-btn span{ font-size:9px; font-weight:600; letter-spacing:.02em; }
+  .tool-btn svg{ width:24px; height:24px; }
+  .tool-btn span{ font-size:10px; font-weight:600; letter-spacing:.02em; }
   .tool-btn:hover{ background:rgba(255,255,255,.06); color:var(--line-white); }
   .tool-btn.active{ background:var(--gold); color:#122; border-color:var(--gold); }
-  .rail-divider{ width:32px; height:1px; background:var(--navy-line); margin:4px 0; }
-  .swatch-row{ display:flex; flex-direction:column; gap:6px; padding-top:4px; }
+  .rail-divider{ width:36px; height:1px; background:var(--navy-line); margin:4px 0; }
+  .swatch-row{ display:flex; flex-direction:column; gap:7px; padding-top:4px; }
   .swatch{
     width:22px; height:22px; border-radius:50%; border:2px solid rgba(255,255,255,.15);
     cursor:pointer; transition:transform .12s ease, border-color .12s ease;
@@ -521,7 +524,7 @@ function defaultPieces(){
   ['A','B'].forEach(team=>{
     [1,2].forEach(num=>{
       pieces.push({id:team+num+'f', kind:'ficha',  team, num, onCourt:false, x:0.5, y:0.5});
-      pieces.push({id:team+num+'p', kind:'player', team, num, onCourt:false, x:0.5, y:0.5});
+      pieces.push({id:team+num+'p', kind:'player', team, num, onCourt:false, x:0.5, y:0.5, rot:0});
     });
   });
   pieces.push({id:'ball', kind:'ball', team:null, num:null, onCourt:false, x:0.5, y:0.5});
@@ -922,10 +925,13 @@ function drawPlayerSilhouette(pc, ir, scale){
   const color=state.team[pc.team].color;
   const pxPerM=ir.w/10; // 10m = ancho real de la cancha (mismas proporciones exageradas que la ficha, para que se vea bien en pantalla)
 
+  // pala real de pádel: ~45cm x 26cm (relación ~1.7:1), escalada igual que el resto del
+  // cuerpo (1.5x) para que se vea bien en pantalla. Antes estaba más angosta y flotando.
   const shoulderW=0.93*pxPerM, bodyLen=0.60*pxPerM, headR=0.2325*pxPerM;
-  const armLen=0.93*pxPerM, paddleLen=0.60*pxPerM, paddleW=0.285*pxPerM;
+  const armLen=0.85*pxPerM, paddleLen=0.675*pxPerM, paddleW=0.39*pxPerM;
 
-  const facing = pc.y>0.5 ? {x:0,y:-1} : {x:0,y:1}; // siempre mirando hacia la red
+  const rot = (pc.rot!==undefined) ? pc.rot : (pc.y>0.5 ? 0 : Math.PI);
+  const facing = {x:Math.sin(rot), y:-Math.cos(rot)}; // rot=0 → mirando hacia arriba de la pantalla
   const rightPerp = {x:-facing.y, y:facing.x}; // lado de la mano derecha del jugador
   let ax=facing.x*0.55+rightPerp.x, ay=facing.y*0.55+rightPerp.y;
   const al=Math.hypot(ax,ay)||1; ax/=al; ay/=al;
@@ -951,9 +957,11 @@ function drawPlayerSilhouette(pc, ir, scale){
   const handX=p.x+ax*armLen, handY=p.y+ay*armLen;
   ctx.lineWidth=Math.max(2,2.6*scale); ctx.strokeStyle=color; ctx.lineCap='round';
   ctx.beginPath(); ctx.moveTo(p.x,p.y); ctx.lineTo(handX,handY); ctx.stroke();
-  const tipX=handX+ax*paddleLen, tipY=handY+ay*paddleLen;
+  // la pala se superpone un poco con la mano (efecto "agarrada", no flotando)
+  const grip=paddleLen*0.18;
+  const midX=handX+ax*(paddleLen/2-grip), midY=handY+ay*(paddleLen/2-grip);
   ctx.save();
-  ctx.translate((handX+tipX)/2,(handY+tipY)/2);
+  ctx.translate(midX,midY);
   ctx.rotate(Math.atan2(ay,ax));
   ctx.beginPath(); ctx.ellipse(0,0,paddleLen/2,paddleW/2,0,0,Math.PI*2);
   ctx.fillStyle=color; ctx.fill();
@@ -999,7 +1007,29 @@ function render(piecesOverride, drawingsOverride, alphaOverride){
   drawCourt(ir);
   drawDrawings(drawingsOverride!==undefined?drawingsOverride:curStep().drawings, ir, alphaOverride);
   drawPieces(piecesOverride||curStep().pieces, ir);
+  if(!piecesOverride && selectedPieceId){
+    const sel=curStep().pieces.find(pc=>pc.id===selectedPieceId && pc.onCourt && pc.kind==='player');
+    if(sel) drawRotationHandle(sel, ir);
+  }
   if(livePreview) drawLivePreview(ir);
+}
+function drawRotationHandle(piece, ir){
+  const scale=ir.w/460;
+  const p=toPx(piece.x, piece.y, ir);
+  const hp=handlePixelPos(piece, ir);
+  ctx.save();
+  ctx.strokeStyle='rgba(244,247,250,.5)'; ctx.lineWidth=Math.max(1,1.4*scale);
+  ctx.setLineDash([4*scale,4*scale]);
+  ctx.beginPath(); ctx.moveTo(p.x,p.y); ctx.lineTo(hp.x,hp.y); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.beginPath(); ctx.arc(hp.x,hp.y, ir.w*0.034, 0, Math.PI*2);
+  ctx.fillStyle='#a47122'; ctx.fill();
+  ctx.lineWidth=Math.max(1,2*scale); ctx.strokeStyle='#f4f7fa'; ctx.stroke();
+  // icono simple de rotación (arco con flecha)
+  ctx.beginPath();
+  ctx.arc(hp.x,hp.y, ir.w*0.017, -0.3, Math.PI*1.3);
+  ctx.strokeStyle='#f4f7fa'; ctx.lineWidth=Math.max(1,1.6*scale); ctx.stroke();
+  ctx.restore();
 }
 
 /* ============ INTERACCIÓN ============ */
@@ -1007,6 +1037,17 @@ let livePreview=null; // {type, from, points, colorpreview}
 let draggingPiece=null;
 let lastDragNorm=null; // última posición normalizada (sin clampear) durante el arrastre, para saber si se soltó afuera
 let drawingPath=null;
+let selectedPieceId=null; // pieza con el handle de rotación visible (solo aplica a jugadores)
+let rotatingPiece=null;
+
+function facingVector(rot){ return {x:Math.sin(rot), y:-Math.cos(rot)}; }
+function handlePixelPos(piece, ir){
+  const p=toPx(piece.x, piece.y, ir);
+  const pxPerM=ir.w/10;
+  const dist=1.5*pxPerM;
+  const f=facingVector(piece.rot||0);
+  return { x:p.x+f.x*dist, y:p.y+f.y*dist };
+}
 
 function pointerNorm(evt){
   const rect=canvas.getBoundingClientRect();
@@ -1081,8 +1122,27 @@ canvas.addEventListener('pointerdown', evt=>{
   if(nx<-0.1||nx>1.1||ny<-0.1||ny>1.1) return;
 
   if(state.tool==='mover'){
+    // ¿se tocó el handle de rotación de la pieza ya seleccionada?
+    if(selectedPieceId){
+      const sel=curStep().pieces.find(pc=>pc.id===selectedPieceId && pc.onCourt && pc.kind==='player');
+      if(sel){
+        const hp=handlePixelPos(sel, ir);
+        const q=toPx(nx,ny,ir);
+        if(Math.hypot(hp.x-q.x, hp.y-q.y) < ir.w*0.05){
+          pushHistory();
+          rotatingPiece=sel;
+          return;
+        }
+      }
+    }
     const pc=nearestPiece(nx,ny,ir);
-    if(pc){ pushHistory(); draggingPiece=pc; lastDragNorm={nx,ny}; }
+    if(pc){
+      pushHistory(); draggingPiece=pc; lastDragNorm={nx,ny};
+      selectedPieceId=pc.id;
+    } else {
+      selectedPieceId=null;
+    }
+    render();
   } else if(state.tool==='flecha'){
     const snap=nearestPiece(nx,ny,ir);
     const from = snap? {x:snap.x,y:snap.y} : {x:clamp(nx,0,1),y:clamp(ny,0,1)};
@@ -1100,7 +1160,12 @@ canvas.addEventListener('pointerdown', evt=>{
 canvas.addEventListener('pointermove', evt=>{
   if(state.playing) return;
   const {nx,ny,ir}=pointerNorm(evt);
-  if(draggingPiece){
+  if(rotatingPiece){
+    const p=toPx(rotatingPiece.x, rotatingPiece.y, ir);
+    const q=toPx(nx,ny,ir);
+    rotatingPiece.rot=Math.atan2(q.x-p.x, -(q.y-p.y));
+    render();
+  } else if(draggingPiece){
     lastDragNorm={nx,ny};
     draggingPiece.x=clamp(nx,0,1); draggingPiece.y=clamp(ny,0,1);
     render();
@@ -1113,6 +1178,10 @@ canvas.addEventListener('pointermove', evt=>{
   }
 });
 function endPointer(){
+  if(rotatingPiece){
+    rotatingPiece=null;
+    scheduleAutosave(); refreshStepThumbs();
+  }
   if(draggingPiece){
     const OFF_MARGIN=0.18; // soltar bastante afuera de la cancha = devolver la pieza al banco
     const wasReleasedOffCourt = lastDragNorm && (
@@ -1176,6 +1245,7 @@ document.querySelectorAll('.tool-btn[data-tool]').forEach(btn=>{
     document.querySelectorAll('.tool-btn[data-tool]').forEach(b=>b.classList.remove('active'));
     btn.classList.add('active');
     state.tool=btn.dataset.tool;
+    if(btn.dataset.tool!=='mover'){ selectedPieceId=null; render(); }
   });
 });
 document.querySelectorAll('.swatch').forEach(sw=>{
@@ -1276,6 +1346,8 @@ function attachBenchDrag(chip, pc){
         pushHistory();
         pc.onCourt=true;
         pc.x=clamp(nx,0,1); pc.y=clamp(ny,0,1);
+        if(pc.kind==='player') pc.rot = pc.y>0.5 ? 0 : Math.PI;
+        selectedPieceId=pc.id;
         renderAll(); scheduleAutosave();
       }
     }
@@ -1370,6 +1442,11 @@ document.getElementById('btnAddStep').addEventListener('click', ()=>{
 const btnPlay=document.getElementById('btnPlay');
 function easeInOutQuad(t){ return t<0.5 ? 2*t*t : -1+(4-2*t)*t; }
 function lerp(a,b,t){ return a+(b-a)*t; }
+function lerpAngle(a,b,t){
+  let diff=((b-a+Math.PI)%(2*Math.PI))-Math.PI;
+  if(diff<-Math.PI) diff+=2*Math.PI;
+  return a+diff*t;
+}
 
 async function playSequence(){
   if(state.steps.length<2){ toast('Agregá al menos 2 pasos'); return; }
@@ -1393,7 +1470,9 @@ async function playSequence(){
         const interp=from.pieces.filter(pc=>pc.onCourt).map(pc=>{
           const target=toMap[pc.id];
           if(target && target.onCourt){
-            return {...pc, x:lerp(pc.x,target.x,et), y:lerp(pc.y,target.y,et)};
+            const out={...pc, x:lerp(pc.x,target.x,et), y:lerp(pc.y,target.y,et)};
+            if(pc.rot!==undefined && target.rot!==undefined) out.rot=lerpAngle(pc.rot,target.rot,et);
+            return out;
           }
           return pc; // sale de la cancha recién al llegar al próximo paso; hasta entonces se queda quieta
         });
