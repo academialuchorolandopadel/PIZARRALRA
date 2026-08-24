@@ -402,6 +402,10 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 19 19 5"/><path d="M9 5h10v10"/></svg>
         <span>FLECHA</span>
       </button>
+      <button class="tool-btn" data-tool="globo" title="Flecha curva (globo)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 18C4 9 20 9 20 15"/><path d="M14 12.5 20 15l-4 4.5"/></svg>
+        <span>GLOBO</span>
+      </button>
       <button class="tool-btn" data-tool="pincel" title="Dibujo libre">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21c1-4 3-11 8-14 3-2 6 1 4 4-3 5-10 7-14 8z"/><path d="M14 7l3 3"/></svg>
         <span>PINCEL</span>
@@ -566,7 +570,7 @@ function defaultPieces(){
     [1,2].forEach(num=>{
       pieces.push({id:team+num+'f', kind:'ficha', team, num, onCourt:false, x:0.5, y:0.5});
       const sp=startPos[team+num+'p'];
-      pieces.push({id:team+num+'p', kind:'player', team, num, onCourt:true, x:sp.x, y:sp.y, rot: sp.y>0.5?0:Math.PI});
+      pieces.push({id:team+num+'p', kind:'player', team, num, onCourt:true, x:sp.x, y:sp.y, rot: sp.y>0.5?0:Math.PI, hand:'right'});
     });
   });
   pieces.push({id:'ball', kind:'ball', team:null, num:null, onCourt:true, x:0.5, y:0.5});
@@ -577,7 +581,10 @@ function defaultStep(){
 }
 // Compatibilidad con jugadas/borradores guardados antes de este cambio (formato viejo: step.players).
 function migrateStep(step){
-  if(step.pieces) return step;
+  if(step.pieces){
+    step.pieces.forEach(pc=>{ if(pc.kind==='player' && !pc.hand) pc.hand='right'; });
+    return step;
+  }
   const pieces=defaultPieces();
   if(Array.isArray(step.players)){
     step.players.forEach(op=>{
@@ -932,6 +939,13 @@ function drawDrawings(drawings, ir, alpha){
         ctx.lineTo(p.x,p.y);
       }
       ctx.stroke();
+    } else if(d.type==='curve'){
+      const p1=toPx(d.from.x,d.from.y,ir), p2=toPx(d.to.x,d.to.y,ir), pc_=toPx(d.control.x,d.control.y,ir);
+      ctx.strokeStyle=d.color; ctx.lineWidth=Math.max(2,4*scale); ctx.lineCap='round';
+      ctx.beginPath(); ctx.moveTo(p1.x,p1.y); ctx.quadraticCurveTo(pc_.x,pc_.y,p2.x,p2.y); ctx.stroke();
+      // la punta de flecha se orienta según la tangente de la curva en el punto final
+      // (que va de "control" a "to", no de "from" a "to")
+      drawArrowHead(pc_,p2,d.color,scale);
     } else if(d.type==='text'){
       const p=toPx(d.x,d.y,ir);
       ctx.font=`700 ${Math.max(11,13*scale)}px Inter, sans-serif`;
@@ -1017,8 +1031,9 @@ function drawPlayerSilhouette(pc, ir, scale){
   ctx.fillStyle=color; ctx.fill();
   ctx.lineWidth=Math.max(1.6,2*scale); ctx.strokeStyle='#f4f7fa'; ctx.stroke();
 
-  // brazo + pala hacia el lado hábil (adelante-derecha): alcance real
-  let ax=1, ay=-0.55; const al=Math.hypot(ax,ay); ax/=al; ay/=al;
+  // brazo + pala hacia el lado hábil (adelante-derecha, o adelante-izquierda si es zurdo)
+  const handSign = pc.hand==='left' ? -1 : 1;
+  let ax=handSign, ay=-0.55; const al=Math.hypot(ax,ay); ax/=al; ay/=al;
   const handX=ax*armLen, handY=ay*armLen;
   ctx.lineWidth=Math.max(2,2.6*scale); ctx.strokeStyle=color; ctx.lineCap='round';
   ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(handX,handY); ctx.stroke();
@@ -1075,7 +1090,7 @@ function render(piecesOverride, drawingsOverride, alphaOverride){
   drawPieces(piecesOverride||curStep().pieces, ir);
   if(!piecesOverride && selectedPieceId){
     const sel=curStep().pieces.find(pc=>pc.id===selectedPieceId && pc.onCourt && pc.kind==='player');
-    if(sel) drawRotationHandle(sel, ir);
+    if(sel){ drawRotationHandle(sel, ir); drawHandBadge(sel, ir); }
   }
   if(livePreview) drawLivePreview(ir);
 }
@@ -1097,12 +1112,26 @@ function drawRotationHandle(piece, ir){
   ctx.strokeStyle='#f4f7fa'; ctx.lineWidth=Math.max(1,1.6*scale); ctx.stroke();
   ctx.restore();
 }
+function drawHandBadge(piece, ir){
+  const scale=ir.w/460;
+  const bp=handBadgePixelPos(piece, ir);
+  ctx.save();
+  ctx.beginPath(); ctx.arc(bp.x,bp.y, ir.w*0.03, 0, Math.PI*2);
+  ctx.fillStyle='#0f3b72'; ctx.fill();
+  ctx.lineWidth=Math.max(1,2*scale); ctx.strokeStyle='#dfa243'; ctx.stroke();
+  ctx.fillStyle='#dfa243';
+  ctx.font=`700 ${Math.max(10,12*scale)}px Inter, sans-serif`;
+  ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.fillText(piece.hand==='left'?'I':'D', bp.x, bp.y+1);
+  ctx.restore();
+}
 
 /* ============ INTERACCIÓN ============ */
 let livePreview=null; // {type, from, points, colorpreview}
 let draggingPiece=null;
 let lastDragNorm=null; // última posición normalizada (sin clampear) durante el arrastre, para saber si se soltó afuera
 let drawingPath=null;
+let curvePath=null; // puntos arrastrados con la herramienta "globo", para ajustar la curva al soltar
 let selectedPieceId=null; // pieza con el handle de rotación visible (solo aplica a jugadores)
 let rotatingPiece=null;
 
@@ -1113,6 +1142,15 @@ function handlePixelPos(piece, ir){
   const dist=1.5*pxPerM;
   const f=facingVector(piece.rot||0);
   return { x:p.x+f.x*dist, y:p.y+f.y*dist };
+}
+// badge para cambiar la mano hábil: ubicado detrás del jugador (lado opuesto a la cabeza),
+// para no superponerse ni con el brazo+pala ni con el handle de rotación
+function handBadgePixelPos(piece, ir){
+  const p=toPx(piece.x, piece.y, ir);
+  const pxPerM=ir.w/10;
+  const dist=0.95*pxPerM;
+  const f=facingVector(piece.rot||0);
+  return { x:p.x-f.x*dist, y:p.y-f.y*dist };
 }
 
 function pointerNorm(evt){
@@ -1157,6 +1195,13 @@ function findDrawingAt(nx,ny,ir){
         const p=toPx(pt.x,pt.y,ir);
         if(Math.hypot(p.x-q.x,p.y-q.y) < ir.w*0.035) return i;
       }
+    } else if(d.type==='curve'){
+      const p1=toPx(d.from.x,d.from.y,ir), p2=toPx(d.to.x,d.to.y,ir), pc_=toPx(d.control.x,d.control.y,ir);
+      for(let t=0;t<=1;t+=0.08){
+        const x=(1-t)*(1-t)*p1.x + 2*(1-t)*t*pc_.x + t*t*p2.x;
+        const y=(1-t)*(1-t)*p1.y + 2*(1-t)*t*pc_.y + t*t*p2.y;
+        if(Math.hypot(x-q.x,y-q.y) < ir.w*0.035) return i;
+      }
     }
   }
   return -1;
@@ -1178,6 +1223,15 @@ function drawLivePreview(ir){
     ctx.moveTo(p0.x,p0.y);
     livePreview.points.forEach(pt=>{ const p=toPx(pt.x,pt.y,ir); ctx.lineTo(p.x,p.y); });
     ctx.stroke(); ctx.globalAlpha=1;
+  } else if(livePreview.type==='curveDraft'){
+    if(livePreview.points.length<2) return;
+    ctx.strokeStyle=state.drawColor; ctx.lineWidth=3; ctx.lineCap='round'; ctx.lineJoin='round'; ctx.globalAlpha=0.6;
+    ctx.setLineDash([6,5]);
+    ctx.beginPath();
+    const p0=toPx(livePreview.points[0].x,livePreview.points[0].y,ir);
+    ctx.moveTo(p0.x,p0.y);
+    livePreview.points.forEach(pt=>{ const p=toPx(pt.x,pt.y,ir); ctx.lineTo(p.x,p.y); });
+    ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha=1;
   }
 }
 
@@ -1199,6 +1253,14 @@ canvas.addEventListener('pointerdown', evt=>{
           rotatingPiece=sel;
           return;
         }
+        const bp=handBadgePixelPos(sel, ir);
+        if(Math.hypot(bp.x-q.x, bp.y-q.y) < ir.w*0.045){
+          pushHistory();
+          sel.hand = sel.hand==='left' ? 'right' : 'left';
+          render(); scheduleAutosave(); refreshStepThumbs();
+          toast(sel.hand==='left' ? 'Jugador zurdo' : 'Jugador diestro');
+          return;
+        }
       }
     }
     const pc=nearestPiece(nx,ny,ir);
@@ -1213,6 +1275,11 @@ canvas.addEventListener('pointerdown', evt=>{
     const snap=nearestPiece(nx,ny,ir);
     const from = snap? {x:snap.x,y:snap.y} : {x:clamp(nx,0,1),y:clamp(ny,0,1)};
     livePreview={type:'arrow', from, to:{x:clamp(nx,0,1),y:clamp(ny,0,1)}};
+  } else if(state.tool==='globo'){
+    const snap=nearestPiece(nx,ny,ir);
+    const from = snap? {x:snap.x,y:snap.y} : {x:clamp(nx,0,1),y:clamp(ny,0,1)};
+    curvePath=[from];
+    livePreview={type:'curveDraft', points:curvePath};
   } else if(state.tool==='pincel'){
     drawingPath=[{x:clamp(nx,0,1),y:clamp(ny,0,1)}];
     livePreview={type:'path', points:drawingPath};
@@ -1240,6 +1307,9 @@ canvas.addEventListener('pointermove', evt=>{
     render();
   } else if(livePreview && livePreview.type==='path'){
     drawingPath.push({x:clamp(nx,0,1),y:clamp(ny,0,1)});
+    render();
+  } else if(livePreview && livePreview.type==='curveDraft'){
+    curvePath.push({x:clamp(nx,0,1),y:clamp(ny,0,1)});
     render();
   }
 });
@@ -1275,7 +1345,36 @@ function endPointer(){
       curStep().drawings.push({type:'path', points:drawingPath, color:state.drawColor});
     }
     livePreview=null; drawingPath=null; render(); scheduleAutosave(); refreshStepThumbs();
+  } else if(livePreview && livePreview.type==='curveDraft'){
+    const pts=curvePath;
+    const from=pts[0], to=pts[pts.length-1];
+    const dx=to.x-from.x, dy=to.y-from.y;
+    if(Math.hypot(dx,dy) > 0.02){
+      pushHistory();
+      const control=fitCurveControl(pts, from, to);
+      curStep().drawings.push({type:'curve', from, to, control, color:state.drawColor});
+    }
+    livePreview=null; curvePath=null; render(); scheduleAutosave(); refreshStepThumbs();
   }
+}
+// Calcula el punto de control de una curva cuadrática a partir del trazo que arrastró el
+// dedo: usa la mayor desviación perpendicular a la recta inicio->fin (con el lado que el
+// propio trazo indica), y garantiza un mínimo de curvatura aunque el arrastre haya sido
+// casi recto, para que el "globo" siempre se vea claramente arqueado.
+function fitCurveControl(points, from, to){
+  const dx=to.x-from.x, dy=to.y-from.y;
+  const len=Math.hypot(dx,dy)||0.0001;
+  const nx=-dy/len, ny=dx/len; // normal unitaria a la recta from->to
+  let maxDev=0;
+  points.forEach(pt=>{
+    const vx=pt.x-from.x, vy=pt.y-from.y;
+    const dev=vx*nx+vy*ny;
+    if(Math.abs(dev)>Math.abs(maxDev)) maxDev=dev;
+  });
+  const minDev=len*0.16;
+  if(Math.abs(maxDev)<minDev) maxDev = minDev; // curvatura mínima garantizada, siempre hacia el mismo lado por defecto
+  const midx=(from.x+to.x)/2, midy=(from.y+to.y)/2;
+  return { x: midx+nx*maxDev*2, y: midy+ny*maxDev*2 };
 }
 canvas.addEventListener('pointerup', endPointer);
 canvas.addEventListener('pointercancel', endPointer);
