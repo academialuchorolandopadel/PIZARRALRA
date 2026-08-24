@@ -87,7 +87,7 @@
         "steps";
     }
     #steps{ flex-direction:row !important; overflow-x:auto; overflow-y:hidden; }
-    #tools{ flex-direction:row !important; justify-content:center; }
+    #tools{ flex-direction:row !important; justify-content:flex-start; overflow-x:auto; overflow-y:hidden; }
     #tools .tool-group{ flex-direction:row !important; }
     /* la barra superior no entra completa en un celular angosto: se achica y
        se le permite encoger (min-width:0 es el fix clásico de overflow en flex/grid) */
@@ -191,7 +191,7 @@
   #tools{
     grid-area:tools;
     display:flex; flex-direction:column; align-items:center;
-    gap:10px; padding:14px 0;
+    gap:10px; padding:14px 0; min-width:0;
     background:linear-gradient(180deg, var(--navy-panel), var(--navy-bg-2));
     border-right:1px solid var(--navy-line);
     z-index:15;
@@ -240,7 +240,7 @@
   /* ---------- STEPS RAIL ---------- */
   #steps{
     grid-area:steps;
-    display:flex; flex-direction:column;
+    display:flex; flex-direction:column; min-width:0;
     background:linear-gradient(180deg, var(--navy-panel), var(--navy-bg-2));
     border-left:1px solid var(--navy-line);
     z-index:15; min-height:0;
